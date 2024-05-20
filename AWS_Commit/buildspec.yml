@@ -1,0 +1,34 @@
+version: 0.2
+env:
+  variables:
+    IMAGE_NAME: 
+    IMAGE_TAG: 
+    TMAS_API_KEY_PARAMETER_NAME: 
+    AWS_REGION: 
+    AWS_ACCOUNT_ID: 
+phases:
+  pre_build:
+    commands:
+      - echo Starting the pre-build phase...
+      - $(aws ecr get-login --no-include-email --region $AWS_REGION)
+  build:
+    commands:
+      - echo Building the Docker image...
+      - docker build -t $IMAGE_NAME .
+      - docker tag $IMAGE_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$IMAGE_NAME:$IMAGE_TAG
+  build:
+    commands:
+      - echo Scanning the Docker image...
+      - export TMAS_API_KEY=$(aws ssm get-parameter --name $TMAS_API_KEY_PARAMETER_NAME --with-decryption --query Parameter.Value --output text)
+      - curl --silent --location https://cli.artifactscan.cloudone.trendmicro.com/tmas-cli/latest/tmas-cli_Linux_x86_64.tar.gz -o tmas.tgz && tar xfvz tmas.tgz && rm -rf THIRD-PARTY-LICENSES LICENSE.pdf README.md tmas.tgz
+      - ./tmas scan docker:$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$IMAGE_NAME:$IMAGE_TAG --malwareScan > findings.json
+  post_build:
+    commands:
+      - echo Pushing the image to ECR...
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$IMAGE_NAME:$IMAGE_TAG
+      - echo Creating imagedefinitions.json file...
+      - printf '[{"name":"ecs-demo","imageUri":"%s"}]' $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$IMAGE_NAME:$IMAGE_TAG > imagedefinitions.json
+artifacts:
+  files: 
+    - imagedefinitions.json
+    - findings.json
